@@ -1,0 +1,20 @@
+select
+    trip_sk,
+    pickup_at,
+    dropoff_at,
+    pickup_date,
+    pickup_hour,
+    pickup_day_name,
+    passenger_count,
+    trip_distance,
+    pickup_location_id,
+    dropoff_location_id,
+    payment_type,
+    fare_amount,
+    tip_amount,
+    tolls_amount,
+    total_amount,
+    rate_code_id,
+    duration_minutes,
+    is_airport_trip
+from silver.yellow_trips_clean

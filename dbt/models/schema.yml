@@ -1,0 +1,32 @@
+version: 2
+
+models:
+  - name: stg_yellow_trips
+    description: Clean yellow taxi trips staged from the silver lakehouse layer.
+    columns:
+      - name: trip_sk
+        tests:
+          - not_null
+          - unique
+      - name: pickup_at
+        tests:
+          - not_null
+      - name: total_amount
+        tests:
+          - not_null
+  - name: int_trip_enriched
+    description: Trip grain table enriched with pickup/dropoff zone names and payment labels.
+    columns:
+      - name: trip_sk
+        tests:
+          - not_null
+          - unique
+      - name: pickup_borough
+        tests:
+          - not_null
+  - name: mart_hourly_demand
+    description: Hourly demand, revenue, passenger, distance and duration metrics.
+  - name: mart_zone_revenue
+    description: Revenue leaderboard by pickup borough and zone.
+  - name: mart_airport_trips
+    description: Airport trip performance by day and pickup zone.

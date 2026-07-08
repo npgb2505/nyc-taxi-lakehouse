@@ -1,0 +1,17 @@
+name: nyc_taxi_lakehouse
+version: "1.0.0"
+config-version: 2
+
+profile: nyc_taxi_lakehouse
+
+model-paths: ["models"]
+test-paths: ["tests"]
+
+models:
+  nyc_taxi_lakehouse:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: table
+    marts:
+      +materialized: table

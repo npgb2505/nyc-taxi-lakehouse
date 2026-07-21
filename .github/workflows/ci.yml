@@ -26,7 +26,7 @@ jobs:
       - name: Run reproducible lakehouse demo
         run: python scripts/run_demo.py --rows 500 --invalid-rows 5
       - name: Run pytest
-        run: pytest -q
+        run: python -m pytest -q
       - name: Run dbt
         working-directory: dbt
         run: |

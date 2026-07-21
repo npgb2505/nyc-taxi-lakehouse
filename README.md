@@ -1,298 +1,136 @@
-# NYC Taxi Lakehouse Analytics Pipeline
+# NYC Taxi Lakehouse
 
-Production-style batch data engineering project for turning official NYC TLC
-yellow taxi trip records into governed, tested and analytics-ready lakehouse
-marts.
+[![CI](https://github.com/npgb2505/nyc-taxi-lakehouse/actions/workflows/ci.yml/badge.svg)](https://github.com/npgb2505/nyc-taxi-lakehouse/actions/workflows/ci.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![DuckDB](https://img.shields.io/badge/warehouse-DuckDB-FFF000.svg)](https://duckdb.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-This repository is intentionally written as a portfolio case study. The goal is
-not only to show that the code can run, but to make the ETL architecture,
-lineage, transformation rules and data quality strategy clear to a hiring
-manager or data engineering reviewer.
+A reproducible batch data pipeline that lands NYC TLC Parquet files, quarantines invalid trips, models bronze/silver/gold tables in DuckDB, and publishes tested demand, zone-revenue, and airport marts.
 
-![NYC Taxi Lakehouse ETL Architecture](docs/architecture-etl.svg)
+![NYC Taxi Lakehouse architecture](docs/architecture-etl.svg)
 
-## Executive Summary
+## Why this project
 
-NYC taxi trip files are monthly operational datasets. They are useful for
-analytics only after they are landed, cleaned, validated, modeled and published
-as business-facing data products.
+Monthly taxi files are useful only when their schema, validity, lineage, and delivery are controlled. This project demonstrates the full path from an immutable raw landing zone to analytics-ready data products, including failure handling and release gates - not only a notebook analysis.
 
-This project implements a local lakehouse pipeline with:
+## Verified demo
 
-| Capability | Implementation |
-|---|---|
-| Batch ingestion | Python downloader for official monthly NYC TLC Parquet files |
-| Raw data lake | Partitioned `data/raw/yellow/year=YYYY/month=MM/` landing zone |
-| Warehouse engine | DuckDB database for bronze, silver and gold schemas |
-| Transformations | SQL and dbt-style models for staging, intermediate and mart layers |
-| Data quality | Python quality gates, dbt tests, pytest and markdown quality report |
-| Orchestration | Airflow DAG: generate or ingest -> build lakehouse -> validate |
-| CI/CD | GitHub Actions runs demo, tests and dbt checks on every push |
+The deterministic demo below is executed by CI and can be reproduced locally. Five malformed trips are injected intentionally to prove that quarantine and reconciliation work.
 
-Official data source: https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page
+| Result | Verified value |
+|---|---:|
+| Raw trips processed | 500 |
+| Accepted / quarantined | 495 / 5 |
+| Acceptance rate | 99.0% |
+| Data-quality gates | 9 passed |
+| Pickup zones represented | 10 |
+| Airport trips in clean data | 98 |
+| Reconciled rows | 500 / 500 |
 
-## Business Questions
+These are deterministic validation metrics, not production traffic benchmarks. The same pipeline can ingest official monthly [NYC TLC trip records](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page).
 
-The pipeline creates trusted tables for mobility, marketplace and city
-operations use cases:
+## Quick start
 
-- Which pickup boroughs and zones generate the most gross revenue?
-- How does taxi demand change by hour and day?
-- Which days have the strongest airport trip volume?
-- Are raw trips clean enough before analysts use them?
-- How many records are rejected by quality rules?
-
-## ETL Design
-
-The project uses an ELT-style lakehouse pattern:
-
-1. Extract official monthly Parquet files from NYC TLC.
-2. Load them unchanged into a raw landing zone.
-3. Transform data inside DuckDB from bronze to silver to gold.
-4. Validate curated outputs before publishing marts.
-
-### Extract
-
-`scripts/ingest_tlc.py` downloads official TLC Parquet files:
-
-```text
-https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_YYYY-MM.parquet
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+python scripts/run_demo.py --rows 500 --invalid-rows 5
 ```
 
-Files are saved into a partitioned raw zone:
+The command generates repeatable sample data, builds the warehouse and marts, runs all quality gates, and writes both human-readable and machine-readable reports.
+
+## Data flow
 
 ```text
-data/raw/yellow/year=2024/month=01/yellow_tripdata_2024-01.parquet
-```
-
-The repository also includes `scripts/generate_sample_data.py` so reviewers can
-run the full pipeline without downloading large files.
-
-### Load
-
-Raw files are not overwritten or normalized at ingestion time. DuckDB reads them
-as an external bronze view:
-
-```sql
-bronze.yellow_trips
-```
-
-This keeps raw data replayable and makes schema-on-read behavior explicit.
-
-### Transform
-
-`scripts/build_lakehouse.py` creates three warehouse layers:
-
-| Layer | Object | Grain | Purpose |
-|---|---|---|---|
-| Bronze | `bronze.yellow_trips` | raw TLC row | Preserve original trip records |
-| Bronze | `bronze.taxi_zones` | one row per taxi zone | Reference lookup for borough and zone names |
-| Silver | `silver.yellow_trips_clean` | one valid trip | Cleaned and typed trip fact table |
-| Gold | `gold.mart_hourly_demand` | date and hour | Demand, passengers, duration, distance, revenue |
-| Gold | `gold.mart_zone_revenue` | pickup borough and zone | Zone revenue leaderboard |
-| Gold | `gold.mart_airport_trips` | date | Airport trip volume, revenue and tip behavior |
-
-## Data Lineage
-
-```text
-NYC TLC Parquet
-  -> data/raw/yellow/year=YYYY/month=MM/*.parquet
+NYC TLC Parquet / deterministic sample
+  -> partitioned raw files (year=YYYY/month=MM)
   -> bronze.yellow_trips
   -> silver.yellow_trips_clean
+     + silver.yellow_trips_rejected (reason attached)
   -> gold.mart_hourly_demand
-  -> gold.mart_zone_revenue
-  -> gold.mart_airport_trips
-  -> data/marts/*.csv
+     gold.mart_zone_revenue
+     gold.mart_airport_trips
+  -> CSV data products + quality reports
 ```
 
-## Transformation Rules
-
-The silver layer applies the rules that make raw trips safe for analysis:
-
-| Rule | Reason |
-|---|---|
-| `dropoff_at > pickup_at` | Removes impossible trip windows |
-| `trip_distance BETWEEN 0.1 AND 100` | Removes zero-distance and extreme outliers |
-| `total_amount BETWEEN 0 AND 1000` | Blocks invalid fare values |
-| pickup and dropoff location IDs must exist | Protects zone-level joins |
-| airport flag derived from `RatecodeID`, JFK and LaGuardia zones | Enables airport-specific analytics |
-| duration, pickup date, hour and day name are derived | Supports time-based marts |
-
-## dbt Model Design
-
-The dbt project mirrors the warehouse design and gives reviewers a familiar
-analytics engineering structure:
-
-```text
-dbt/models/staging/stg_yellow_trips.sql
-dbt/models/intermediate/int_trip_enriched.sql
-dbt/models/marts/mart_hourly_demand.sql
-dbt/models/marts/mart_zone_revenue.sql
-dbt/models/marts/mart_airport_trips.sql
-```
-
-| dbt Model | Role |
-|---|---|
-| `stg_yellow_trips` | Stable staging interface over the silver layer |
-| `int_trip_enriched` | Adds pickup/dropoff zone names and payment labels |
-| `mart_hourly_demand` | Demand and revenue by pickup hour |
-| `mart_zone_revenue` | Pickup zone revenue and trip performance |
-| `mart_airport_trips` | Airport trip volume, revenue, tips and duration |
-
-## Data Quality Strategy
-
-The pipeline fails before publishing unreliable marts. Quality is checked in
-three places:
-
-| Layer | Tool | What It Proves |
+| Layer | Grain | Responsibility |
 |---|---|---|
-| Pipeline | `scripts/data_quality.py` | Critical business rules pass |
-| Models | dbt tests | Keys and required fields are valid |
-| Repository | pytest | The full demo rebuilds expected marts |
-| CI | GitHub Actions | The project is reproducible from a clean checkout |
+| Bronze | Source trip | Preserve source columns and support replay |
+| Silver clean | Valid trip | Type, constrain, derive duration and airport flag |
+| Silver rejected | Invalid trip | Preserve failed rows with one or more rejection reasons |
+| Gold hourly | Date and hour | Demand, passengers, duration, distance, revenue |
+| Gold zone | Pickup zone | Trips, revenue, tips, distance, average ticket |
+| Gold airport | Date | Airport volume, revenue, tip rate, duration |
 
-Quality gates:
+## Reliability controls
 
-| Check | Failure Meaning |
-|---|---|
-| `silver_has_rows` | No usable trip data reached the curated layer |
-| `no_negative_amounts` | Fare or revenue values are invalid |
-| `valid_trip_duration` | Trip windows are impossible or extreme |
-| `valid_distance` | Distance values are not analytically usable |
-| `location_keys_present` | Zone joins would be broken |
+- Idempotent ingestion skips existing non-empty files unless `--force` is passed.
+- Downloads use retry/backoff and atomic `.part` file replacement.
+- Invalid trips are quarantined instead of disappearing from the pipeline.
+- A reconciliation gate enforces `raw = clean + rejected`.
+- Nine SQL quality gates check validity, uniqueness, dimension coverage, and non-empty marts.
+- dbt tests validate model keys and required fields.
+- pytest exercises deterministic generation, invalid input handling, quarantine, and end-to-end marts.
+- GitHub Actions rebuilds the pipeline and dbt models on every push and pull request.
 
-Generated report:
+Reports are written to:
 
 ```text
 reports/data_quality_report.md
+reports/data_quality_report.json
 ```
 
-## Orchestration
+## Run with official NYC TLC data
 
-The Airflow DAG in `airflow/dags/nyc_taxi_lakehouse_dag.py` represents the
-production schedule:
-
-```text
-generate_sample_data or ingest_tlc
-  -> build_lakehouse
-  -> run_quality_checks
+```bash
+python scripts/ingest_tlc.py --trip-type yellow --year 2024 --month 1
+python scripts/build_lakehouse.py
+python scripts/data_quality.py
 ```
 
-In a cloud version, this DAG can be adapted to:
+The downloader writes to `data/raw/yellow/year=2024/month=01/`. Raw data and generated warehouses are intentionally excluded from Git.
 
-- download the latest monthly TLC file,
-- write raw files to S3 or ADLS,
-- build marts in DuckDB, BigQuery, Snowflake or Databricks,
-- alert on failed quality gates.
+## dbt and orchestration
 
-## Failure Modes Handled
+The dbt project provides a second, reviewable transformation layer over curated DuckDB tables:
 
-| Failure Mode | Handling |
-|---|---|
-| Empty ingestion | `silver_has_rows` fails |
-| Bad fares | negative or extreme amount checks fail |
-| Impossible trips | duration and distance checks fail |
-| Missing locations | location key check fails |
-| Broken model contract | dbt tests fail |
-| Non-reproducible repo | GitHub Actions fails |
-
-## Repository Structure
-
-```text
-.
-|-- .github/workflows/ci.yml
-|-- airflow/dags/nyc_taxi_lakehouse_dag.py
-|-- dbt/
-|   |-- dbt_project.yml
-|   |-- profiles.yml
-|   `-- models/
-|       |-- staging/
-|       |-- intermediate/
-|       `-- marts/
-|-- docs/
-|   |-- architecture-etl.svg
-|   `-- data_contract.md
-|-- scripts/
-|   |-- ingest_tlc.py
-|   |-- generate_sample_data.py
-|   |-- build_lakehouse.py
-|   |-- data_quality.py
-|   `-- run_demo.py
-|-- tests/test_pipeline_contracts.py
-|-- docker-compose.yml
-`-- requirements.txt
-```
-
-## How To Run
-
-Install dependencies:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-Run the local reproducible demo:
-
-```powershell
-python scripts\run_demo.py --rows 500
-```
-
-Run dbt:
-
-```powershell
+```bash
 cd dbt
 dbt debug --profiles-dir .
 dbt run --profiles-dir .
 dbt test --profiles-dir .
 ```
 
-Run tests:
+The Airflow DAG in `airflow/dags/nyc_taxi_lakehouse_dag.py` schedules generation/ingestion, warehouse build, and release-gate validation. Start the local Airflow service with `docker compose up`.
 
-```powershell
-pytest
+## Repository map
+
+```text
+airflow/dags/                  scheduled pipeline
+dbt/models/                    staging, intermediate, and mart SQL
+docs/                          architecture and data contract
+scripts/                       ingestion, generation, build, quality, demo
+tests/                         unit and end-to-end contract tests
+.github/workflows/ci.yml       automated verification
 ```
 
-Run Airflow:
+Generated outputs:
 
-```powershell
-docker compose up
+```text
+data/warehouse/taxi_lakehouse.duckdb
+data/marts/*.csv
+reports/data_quality_report.{md,json}
 ```
 
-## Outputs
+## Design choices and scope
 
-| Output | Description |
-|---|---|
-| `data/warehouse/taxi_lakehouse.duckdb` | Local DuckDB warehouse |
-| `data/marts/mart_hourly_demand.csv` | Hourly demand and revenue mart |
-| `data/marts/mart_zone_revenue.csv` | Pickup zone performance mart |
-| `data/marts/mart_airport_trips.csv` | Airport trip analytics mart |
-| `reports/data_quality_report.md` | Quality check evidence |
+- DuckDB keeps the project runnable on a laptop while preserving SQL warehouse patterns.
+- Deterministic sample mode makes CI independent of network availability; official-data mode exercises the real source contract.
+- Parquet remains the raw system of record, while DuckDB and dbt provide modeled interfaces.
+- The project currently processes one machine's files. A production deployment would move raw storage to object storage, use managed orchestration, add incremental state, and export operational metrics to a monitoring backend.
 
-## What This Demonstrates
+## Author
 
-- Raw-to-gold lakehouse design.
-- Batch ingestion from public Parquet files.
-- Partitioned raw landing strategy.
-- SQL transformations with business rules.
-- dbt modeling and tests.
-- Airflow orchestration.
-- Quality gates that fail the pipeline.
-- CI that proves the project rebuilds from scratch.
-- README and architecture documentation written for technical review.
-
-## Interview Talking Points
-
-- I preserved raw files separately from curated tables so the pipeline can be replayed.
-- I used bronze, silver and gold layers to separate ingestion, cleaning and business marts.
-- I added data quality checks before consumption because a mart is only valuable if it is trustworthy.
-- I included dbt tests and CI so the project is not just a local notebook or one-off script.
-- I modeled outputs around business questions: hourly demand, zone revenue and airport trips.
-
-## CV Bullet
-
-Built an end-to-end NYC taxi lakehouse pipeline using Python, DuckDB, dbt,
-Airflow and GitHub Actions to ingest official Parquet trip records, preserve raw
-data, transform trips through bronze/silver/gold layers, enforce data quality
-gates and publish tested demand, revenue and airport-trip marts.
+Nguyen Phuc Gia Bao - [GitHub](https://github.com/npgb2505) - [LinkedIn](https://www.linkedin.com/in/gia-bao-nguyen-phuc-27a6682b6/)

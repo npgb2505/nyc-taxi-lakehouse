@@ -26,7 +26,22 @@ models:
           - not_null
   - name: mart_hourly_demand
     description: Hourly demand, revenue, passenger, distance and duration metrics.
+    columns:
+      - name: pickup_date
+        tests: [not_null]
+      - name: pickup_hour
+        tests: [not_null]
+      - name: trips
+        tests: [not_null]
   - name: mart_zone_revenue
     description: Revenue leaderboard by pickup borough and zone.
+    columns:
+      - name: pickup_zone
+        tests: [not_null]
+      - name: gross_revenue
+        tests: [not_null]
   - name: mart_airport_trips
     description: Airport trip performance by day and pickup zone.
+    columns:
+      - name: pickup_date
+        tests: [not_null]

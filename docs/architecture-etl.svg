@@ -69,9 +69,9 @@
 
   <rect class="box box-green" x="636" y="194" width="210" height="126"/>
   <text class="icon" x="662" y="236">SQL</text>
-  <text class="label" x="662" y="265">Silver Clean</text>
-  <text class="small" x="662" y="290">silver.yellow_trips_clean</text>
-  <text class="tiny" x="662" y="310">valid trips, metrics, flags</text>
+  <text class="label" x="662" y="265">Silver Contract</text>
+  <text class="small" x="662" y="290">clean + rejected trips</text>
+  <text class="tiny" x="662" y="310">valid rows or rejection reason</text>
 
   <rect class="box box-purple" x="396" y="382" width="210" height="126"/>
   <text class="icon" x="422" y="424">dbt</text>
@@ -88,8 +88,8 @@
   <rect class="box box-red" x="396" y="570" width="450" height="126"/>
   <text class="icon" x="422" y="612">Quality Gate</text>
   <text class="label" x="422" y="641">Fail Fast Before Consumption</text>
-  <text class="small" x="422" y="666">no negative fares, valid duration/distance, non-null locations</text>
-  <text class="metric" x="422" y="686">pytest + dbt tests + reports/data_quality_report.md</text>
+  <text class="small" x="422" y="666">9 gates: validity, uniqueness, dimensions, reconciliation, marts</text>
+  <text class="metric" x="422" y="686">pytest + dbt + Markdown/JSON quality evidence</text>
 
   <rect class="box box-purple" x="948" y="194" width="210" height="126"/>
   <text class="icon" x="974" y="236">Airflow</text>

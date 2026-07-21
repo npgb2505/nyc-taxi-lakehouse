@@ -5,11 +5,15 @@ from pathlib import Path
 
 import pandas as pd
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def build_trips(rows: int) -> pd.DataFrame:
+def build_trips(rows: int, invalid_rows: int = 0) -> pd.DataFrame:
+    if rows <= 0:
+        raise ValueError("rows must be greater than zero")
+    if invalid_rows < 0 or invalid_rows > rows:
+        raise ValueError("invalid_rows must be between zero and rows")
+
     pickup_start = pd.Timestamp("2024-01-01 00:00:00")
     records = []
     pu_locations = [132, 138, 161, 162, 230, 236, 237, 238, 239, 261]
@@ -47,7 +51,19 @@ def build_trips(rows: int) -> pd.DataFrame:
                 "Airport_fee": airport_fee,
             }
         )
-    return pd.DataFrame(records)
+    trips = pd.DataFrame(records)
+    for i in range(invalid_rows):
+        row = trips.index[i]
+        scenario = i % 4
+        if scenario == 0:
+            trips.loc[row, "trip_distance"] = -1.0
+        elif scenario == 1:
+            trips.loc[row, "tpep_dropoff_datetime"] = trips.loc[row, "tpep_pickup_datetime"]
+        elif scenario == 2:
+            trips.loc[row, "PULocationID"] = None
+        else:
+            trips.loc[row, "fare_amount"] = -10.0
+    return trips
 
 
 def build_zones() -> pd.DataFrame:
@@ -81,6 +97,12 @@ def build_zones() -> pd.DataFrame:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate deterministic sample NYC taxi data.")
     parser.add_argument("--rows", type=int, default=500)
+    parser.add_argument(
+        "--invalid-rows",
+        type=int,
+        default=0,
+        help="Number of deterministic invalid rows used to demonstrate quarantine logic.",
+    )
     args = parser.parse_args()
 
     raw_dir = ROOT / "data" / "raw" / "yellow" / "year=2024" / "month=01"
@@ -90,10 +112,10 @@ def main() -> None:
 
     trips_path = raw_dir / "yellow_tripdata_2024-01.parquet"
     zones_path = ref_dir / "taxi_zone_lookup.csv"
-    build_trips(args.rows).to_parquet(trips_path, index=False)
+    build_trips(args.rows, args.invalid_rows).to_parquet(trips_path, index=False)
     build_zones().to_csv(zones_path, index=False)
 
-    print(f"Wrote {trips_path}")
+    print(f"Wrote {trips_path} ({args.rows} rows, {args.invalid_rows} intentionally invalid)")
     print(f"Wrote {zones_path}")
 
 
